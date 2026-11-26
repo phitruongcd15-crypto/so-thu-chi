@@ -126,6 +126,21 @@ label{display:block;font-size:12.5px;color:var(--muted);margin:12px 0 5px}
 .crow:last-child{border-bottom:0}.crow.kid{padding-left:36px}.crow.on{color:var(--pri-d);font-weight:600}
 .crow:active{background:var(--bg)}
 .sub2{display:flex;justify-content:space-between;font-size:12.5px;color:var(--muted);padding:2px 0 2px 22px}
+.pchips{display:flex;gap:6px;overflow-x:auto;margin-bottom:10px;padding:2px 0}
+.pchips button{flex:none;padding:7px 14px;border-radius:18px;background:var(--card);box-shadow:var(--shadow);font-size:14px;color:var(--muted)}
+.pchips button.on{background:var(--pri);color:#fff;font-weight:600}
+.dates{display:flex;gap:8px;margin-bottom:10px}.dates input{flex:1}
+.kv{display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:14px}.kv>span:first-child{color:var(--muted)}
+.net{font-size:26px;font-weight:700;margin-top:2px}
+.cmp{font-size:12.5px;margin:-4px 0 8px}
+.hb{height:8px;border-radius:5px;margin:2px 0 10px;min-width:3px}.hb.i{background:var(--inc)}.hb.e{background:var(--exp)}
+.dgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.dcol{text-align:center;cursor:pointer;padding:4px 2px;border-radius:12px}.dcol:active{background:var(--bg)}
+.donut.mini{width:130px;height:130px}
+.lg{display:flex;align-items:center;gap:6px;font-size:12px;text-align:left;margin-top:3px}
+.bsel{fill:rgba(128,128,128,.16)}.bline{stroke:var(--pri);stroke-width:2}.barea{fill:rgba(45,184,75,.15)}.bdot{fill:var(--pri)}
+.cap{text-align:center;font-size:12.5px;color:var(--muted);min-height:18px}
+.sum.s2{grid-template-columns:1fr 1fr;margin-top:-4px}
 .rg{border-bottom:1px solid var(--line)}.rg:last-child{border-bottom:0}.rg .row{border-bottom:0}
 </style>
 </head>
@@ -166,7 +181,7 @@ const S = {
   data: ls('sc_data', { wallets: [], categories: [], transactions: [], budgets: [] }),
   queue: ls('sc_queue', []),
   view: 'tx', month: todayStr().slice(0, 7), wallet: 'all', q: '', searchOpen: false,
-  rtype: 'expense', sync: 'idle', syncMsg: ''
+  rp: { type: 'month', anchor: todayStr(), from: '', to: '' }, rbk: null, sync: 'idle', syncMsg: ''
 };
 if (!S.cfg.url && AUTO_URL) S.cfg.url = AUTO_URL;
 (function () { /* link cài nhanh: #url=...&key=... */
@@ -283,12 +298,12 @@ function render() {
 function renderMain() { $('#main').innerHTML = ({ tx: viewTx, report: viewReport, budget: viewBudget, acct: viewAcct })[S.view](); }
 function renderHeader() {
   const sync = `<button id="syncbtn" class="hbtn" data-act="sync">${syncHTML()}</button>`;
-  if (S.view === 'tx') {
+  if (S.view === 'tx' || S.view === 'report') {
     const bal = S.wallet === 'all' ? totalBal() : (balances()[S.wallet] || 0);
     const name = S.wallet === 'all' ? 'Tất cả ví' : W(S.wallet).name;
-    $('#hdr').innerHTML = `<button class="wsel" data-act="pickWallet"><small>${esc(name)} ▾</small><b>${money(bal)}</b></button><span class="sp"></span><button class="hbtn" data-act="search">🔍</button>${sync}` +
-      (S.searchOpen ? `<div class="srow"><input id="q" placeholder="Tìm theo ghi chú, danh mục…" value="${esc(S.q)}"></div>` : '');
-    if (S.searchOpen) { const q = $('#q'); q && q.focus(); }
+    $('#hdr').innerHTML = `<button class="wsel" data-act="pickWallet"><small>${esc(name)} ▾</small><b>${money(bal)}</b></button><span class="sp"></span>${S.view === 'tx' ? '<button class="hbtn" data-act="search">🔍</button>' : ''}${sync}` +
+      (S.view === 'tx' && S.searchOpen ? `<div class="srow"><input id="q" placeholder="Tìm theo ghi chú, danh mục…" value="${esc(S.q)}"></div>` : '');
+    if (S.view === 'tx' && S.searchOpen) { const q = $('#q'); q && q.focus(); }
   } else {
     $('#hdr').innerHTML = `<b class="ttl">${TITLES[S.view]}</b><span class="sp"></span>${sync}`;
   }
@@ -326,6 +341,7 @@ function viewTx() {
   const days = Object.keys(groups).sort().reverse();
   let h = searching ? '' : monthNav();
   h += `<div class="card sum"><div><small>Tiền vào</small><b class="inc">${money(inc)}</b></div><div><small>Tiền ra</small><b class="exp">${money(exp)}</b></div><div><small>Chênh lệch</small><b>${(inc-exp>0?'+':'')+money(inc-exp)}</b></div></div>`;
+  if (!searching) { const [yy, mm] = S.month.split('-').map(Number); h += `<div class="card sum s2"><div><small>Số dư đầu</small><b>${money(balAt(addDays(S.month + '-01', -1)))}</b></div><div><small>Số dư cuối</small><b>${money(balAt(S.month + '-' + pad(lastDay(yy, mm))))}</b></div></div>`; }
   if (!days.length) return h + `<div class="empty"><i>🧾</i>${searching ? 'Không tìm thấy giao dịch' : 'Chưa có giao dịch trong tháng này.<br>Bấm ＋ để thêm.'}</div>`;
   days.forEach(d => {
     const [y, m, dd] = d.split('-').map(Number), wd = WD[new Date(y, m - 1, dd).getDay()];
@@ -335,48 +351,174 @@ function viewTx() {
   return h;
 }
 
-/* ---------- tab: báo cáo ---------- */
-function donut(rows, total) {
+/* ---------- khoảng thời gian & số dư ---------- */
+const D = s => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
+const ds = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const addDays = (s, n) => { const d = D(s); d.setDate(d.getDate() + n); return ds(d); };
+const addMonths = (s, n) => { const d = D(s); d.setDate(1); d.setMonth(d.getMonth() + n); return ds(d); };
+const lastDay = (y, m) => new Date(y, m, 0).getDate();
+const dmy = s => { const [y, m, d] = s.split('-'); return `${d}/${m}/${y}`; };
+const dm = s => { const [, m, d] = s.split('-'); return `${d}/${m}`; };
+const daysBetween = (a, b) => Math.round((D(b) - D(a)) / 86400000) + 1;
+const WDS = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+const PTYPES = [['week', 'Tuần'], ['month', 'Tháng'], ['quarter', 'Quý'], ['year', 'Năm'], ['custom', 'Tùy chọn']];
+
+function prange(p) {
+  const a = D(p.anchor), y = a.getFullYear(), m = a.getMonth() + 1;
+  if (p.type === 'week') { const f = addDays(p.anchor, -((a.getDay() + 6) % 7)), t = addDays(f, 6); return { from: f, to: t, label: `${dm(f)} – ${dmy(t)}` }; }
+  if (p.type === 'quarter') { const q = Math.floor((m - 1) / 3), m0 = q * 3 + 1; return { from: `${y}-${pad(m0)}-01`, to: `${y}-${pad(m0 + 2)}-${pad(lastDay(y, m0 + 2))}`, label: `Quý ${q + 1}/${y}` }; }
+  if (p.type === 'year') return { from: `${y}-01-01`, to: `${y}-12-31`, label: `Năm ${y}` };
+  if (p.type === 'custom') { const f = p.from || todayStr(), t = p.to && p.to >= f ? p.to : f; return { from: f, to: t, label: `${dm(f)} – ${dmy(t)}` }; }
+  return { from: `${y}-${pad(m)}-01`, to: `${y}-${pad(m)}-${pad(lastDay(y, m))}`, label: `Tháng ${m}/${y}` };
+}
+function pshift(p, k) {
+  const n = { ...p };
+  if (p.type === 'week') n.anchor = addDays(p.anchor, 7 * k);
+  else if (p.type === 'month') n.anchor = addMonths(p.anchor, k);
+  else if (p.type === 'quarter') n.anchor = addMonths(p.anchor, 3 * k);
+  else if (p.type === 'year') n.anchor = addMonths(p.anchor, 12 * k);
+  else { const r = prange(p), len = daysBetween(r.from, r.to); n.from = addDays(r.from, len * k); n.to = addDays(r.to, len * k); }
+  return n;
+}
+const rangeTx = (f, t) => S.data.transactions.filter(x => x.date >= f && x.date <= t && inScope(x));
+function sumTx(l) { let inc = 0, exp = 0; l.forEach(t => { if (t.type === 'income') inc += +t.amount; else if (t.type === 'expense') exp += +t.amount; }); return { inc, exp }; }
+function delta(t) {
+  const a = +t.amount || 0;
+  if (S.wallet === 'all') return t.type === 'income' ? a : t.type === 'expense' ? -a : 0;
+  const w = S.wallet;
+  if (t.type === 'income') return t.walletId === w ? a : 0;
+  if (t.type === 'expense') return t.walletId === w ? -a : 0;
+  return (t.walletId === w ? -a : 0) + (t.toWalletId === w ? a : 0);
+}
+const scopeInit = () => S.wallet === 'all' ? S.data.wallets.reduce((s, w) => s + (+w.initial || 0), 0) : (+(W(S.wallet) || {}).initial || 0);
+const balAt = d => scopeInit() + S.data.transactions.reduce((s, t) => t.date <= d ? s + delta(t) : s, 0);
+
+function makeBuckets(r, type) {
+  const n = daysBetween(r.from, r.to), out = [], push = (f, t, label) => out.push({ from: f, to: t, label });
+  if (type !== 'quarter' && type !== 'year' && n <= 14) {
+    for (let i = 0; i < n; i++) { const d = addDays(r.from, i); push(d, d, n <= 7 ? WDS[D(d).getDay()] : String(+d.slice(8))); }
+  } else if (type !== 'quarter' && type !== 'year' && n <= 100) {
+    for (let f = r.from, i = 1; f <= r.to; f = addDays(f, 7), i++) { const e = addDays(f, 6); push(f, e > r.to ? r.to : e, n <= 35 ? `Tuần ${i}` : dm(f)); }
+  } else {
+    let f = r.from;
+    while (f <= r.to) { const d = D(f), e = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(lastDay(d.getFullYear(), d.getMonth() + 1))}`; push(f, e > r.to ? r.to : e, `T${d.getMonth() + 1}`); f = addMonths(f, 1); }
+  }
+  return out.map(b => { const s = sumTx(rangeTx(b.from, b.to)); return { ...b, inc: s.inc, exp: s.exp, bal: balAt(b.to) }; });
+}
+
+/* ---------- nhóm danh mục ---------- */
+const groupOf = t => { const c = C(t.categoryId); return c ? (parentOf(c) ? parentOf(c).id : c.id) : ''; };
+function catGroups(list) {
+  const g = {};
+  list.forEach(t => { const gid = groupOf(t), o = g[gid] = g[gid] || { id: gid, v: 0, subs: {} }; o.v += +t.amount; o.subs[t.categoryId || ''] = (o.subs[t.categoryId || ''] || 0) + +t.amount; });
+  return Object.values(g).sort((a, b) => b.v - a.v);
+}
+const truncRows = rows => rows.length > 8 ? rows.slice(0, 7).concat([{ id: '__other', v: rows.slice(7).reduce((s, r) => s + r.v, 0), subs: {} }]) : rows;
+const gname = id => id === '__other' ? 'Khác' : (C(id) ? C(id).name : 'Chưa phân loại');
+const gicon = id => id === '__other' ? '…' : (C(id) ? C(id).icon : '❓');
+
+/* ---------- biểu đồ ---------- */
+function donut(rows, total, cls) {
   const R = 70, Cc = 2 * Math.PI * R; let off = 0;
   const segs = rows.map((r, i) => { const len = r.v / total * Cc; const s = `<circle r="${R}" cx="100" cy="100" fill="none" stroke="${PAL[i % PAL.length]}" stroke-width="28" stroke-dasharray="${len} ${Cc - len}" stroke-dashoffset="${-off}" transform="rotate(-90 100 100)"/>`; off += len; return s; }).join('');
-  return `<div class="donutwrap"><svg viewBox="0 0 200 200" class="donut">${segs}<text x="100" y="96" text-anchor="middle" class="dl">Tổng</text><text x="100" y="118" text-anchor="middle" class="dv">${short(total)}</text></svg></div>`;
+  const svg = `<svg viewBox="0 0 200 200" class="donut ${cls || ''}">${segs}<text x="100" y="96" text-anchor="middle" class="dl">Tổng</text><text x="100" y="118" text-anchor="middle" class="dv">${short(total)}</text></svg>`;
+  return cls ? svg : `<div class="donutwrap">${svg}</div>`;
 }
-function bars() {
-  const months = [...Array(6)].map((_, i) => shiftMonth(S.month, i - 5));
-  const data = months.map(m => { let i = 0, e = 0; txs(m).forEach(t => { if (t.type === 'income') i += +t.amount; else if (t.type === 'expense') e += +t.amount; }); return { m, i, e }; });
-  const max = Math.max(1, ...data.map(d => Math.max(d.i, d.e)));
-  const gw = 320 / 6, H = 110;
-  const g = data.map((d, k) => {
-    const x = k * gw + gw / 2, hi = d.i / max * H, he = d.e / max * H;
-    return `<rect class="bi" x="${x-13}" y="${H-hi+8}" width="12" height="${hi}" rx="2"/><rect class="be" x="${x+1}" y="${H-he+8}" width="12" height="${he}" rx="2"/><text x="${x}" y="134" text-anchor="middle">T${+d.m.slice(5)}</text>`;
+function bucketLabels(bk, gw, y) {
+  const every = Math.ceil(bk.length / 8);
+  return bk.map((b, i) => i % every === 0 ? `<text x="${i * gw + gw / 2}" y="${y}" text-anchor="middle">${esc(b.label)}</text>` : '').join('');
+}
+function trendChart(bk) {
+  const n = bk.length, gw = 320 / n, bw = Math.min(14, gw / 2.6), H = 105;
+  const max = Math.max(1, ...bk.map(b => Math.max(b.inc, b.exp)));
+  const g = bk.map((b, i) => {
+    const x = i * gw + gw / 2, hi = b.inc / max * H, he = b.exp / max * H;
+    return `<g data-act="bk" data-i="${i}">${S.rbk === i ? `<rect class="bsel" x="${i * gw + 1}" y="0" width="${gw - 2}" height="${H + 16}" rx="4"/>` : ''}<rect fill="transparent" x="${i * gw}" y="0" width="${gw}" height="${H + 18}"/><rect class="bi" x="${x - bw - 1}" y="${H - hi + 8}" width="${bw}" height="${hi}" rx="2"/><rect class="be" x="${x + 1}" y="${H - he + 8}" width="${bw}" height="${he}" rx="2"/></g>`;
   }).join('');
-  return `<svg viewBox="0 0 320 142" class="barsvg">${g}</svg><div class="legend"><span class="i">Thu</span><span>Chi</span></div>`;
+  return `<svg viewBox="0 0 320 136" class="barsvg">${g}${bucketLabels(bk, gw, 130)}</svg>`;
 }
+function balChart(bk) {
+  const n = bk.length, gw = 320 / n, vals = bk.map(b => b.bal), min = Math.min(...vals), max = Math.max(...vals), span = max - min || 1;
+  const pts = vals.map((v, i) => [i * gw + gw / 2, 14 + (1 - (v - min) / span) * 74]);
+  const line = pts.map(q => q.join(',')).join(' ');
+  const dots = pts.map(q => `<circle class="bdot" cx="${q[0]}" cy="${q[1]}" r="3"/>`).join('');
+  const lab = `<text x="4" y="10" text-anchor="start">${short(max)}</text><text x="4" y="104" text-anchor="start">${short(min)}</text>`;
+  return `<svg viewBox="0 0 320 136" class="barsvg"><polygon class="barea" points="${pts[0][0]},96 ${line} ${pts[n - 1][0]},96"/><polyline class="bline" fill="none" points="${line}"/>${dots}${lab}${bucketLabels(bk, gw, 130)}</svg>`;
+}
+function cmp(cur, prev, upGood) {
+  if (!prev) return cur ? '<div class="cmp" style="color:var(--muted)">Kỳ trước: 0 ₫</div>' : '';
+  const pc = (cur - prev) / prev * 100, good = (pc >= 0) === upGood;
+  return `<div class="cmp" style="color:var(--${good ? 'inc' : 'exp'})">${pc >= 0 ? '▲' : '▼'} ${Math.abs(pc).toFixed(0)}% so với kỳ trước (${money(prev)})</div>`;
+}
+
+/* ---------- tab: báo cáo ---------- */
 function viewReport() {
-  const type = S.rtype, list = txs(S.month).filter(t => t.type === type);
-  const g = {};
-  list.forEach(t => {
-    const c = C(t.categoryId), gid = c ? (parentOf(c) ? parentOf(c).id : c.id) : '';
-    const o = g[gid] = g[gid] || { id: gid, v: 0, subs: {} };
-    o.v += +t.amount; o.subs[t.categoryId || ''] = (o.subs[t.categoryId || ''] || 0) + +t.amount;
-  });
-  let rows = Object.values(g).sort((a, b) => b.v - a.v);
-  if (rows.length > 8) { const rest = rows.slice(7).reduce((s, r) => s + r.v, 0); rows = rows.slice(0, 7).concat([{ id: '__other', v: rest, subs: {} }]); }
-  const total = rows.reduce((s, r) => s + r.v, 0);
-  let h = monthNav() + `<div class="seg"><button class="${type==='expense'?'on':''}" data-act="rtype" data-v="expense">Chi tiêu</button><button class="${type==='income'?'on':''}" data-act="rtype" data-v="income">Thu nhập</button></div>`;
-  h += `<div class="card pad">`;
-  if (!total) h += `<div class="empty"><i>📊</i>Không có dữ liệu</div>`;
-  else {
-    h += donut(rows, total) + rows.map((r, i) => {
-      const c = C(r.id), name = r.id === '__other' ? 'Khác' : (c ? c.name : 'Chưa phân loại'), ic = r.id === '__other' ? '…' : (c ? c.icon : '❓');
-      const subs = Object.entries(r.subs).sort((a, b) => b[1] - a[1]);
-      const show = subs.length > 1 || (subs.length === 1 && subs[0][0] !== r.id);
-      const subHtml = show ? subs.map(([sid, v]) => `<div class="sub2"><span>${esc(sid === r.id ? name + ' (chung)' : (C(sid) ? C(sid).name : 'Chưa phân loại'))}</span><span>${money(v)}</span></div>`).join('') : '';
-      return `<div class="rg"><div class="row" style="padding-left:0;padding-right:0;cursor:default"><span class="dot" style="background:${PAL[i % PAL.length]}"></span><div class="mid"><b>${esc(ic)} ${esc(name)}</b></div><div class="pct">${(r.v/total*100).toFixed(1)}%</div><div class="amt">${money(r.v)}</div></div>${subHtml}</div>`;
-    }).join('');
+  const p = S.rp, r = prange(p), list = rangeTx(r.from, r.to), { inc, exp } = sumTx(list);
+  const pr = prange(pshift(p, -1)), ps = sumTx(rangeTx(pr.from, pr.to));
+  const net = inc - exp, tot = inc + exp || 1;
+  let h = `<div class="pchips">${PTYPES.map(([k, l]) => `<button class="${p.type === k ? 'on' : ''}" data-act="rPer" data-v="${k}">${l}</button>`).join('')}</div>`;
+  h += p.type === 'custom'
+    ? `<div class="dates"><input type="date" id="rp_f" value="${r.from}"><input type="date" id="rp_t" value="${r.to}"></div>`
+    : `<div class="mnav"><button data-act="rPrev">‹</button><button class="mlabel" data-act="rNow">${r.label}</button><button data-act="rNext">›</button></div>`;
+
+  h += `<div class="card pad"><div class="kv"><span>Số dư đầu</span><b>${money(balAt(addDays(r.from, -1)))}</b></div><div class="kv"><span>Số dư cuối</span><b>${money(balAt(r.to))}</b></div></div>`;
+
+  h += `<div class="card pad"><b>Thu nhập ròng</b><div class="net ${net < 0 ? 'exp' : 'inc'}">${net > 0 ? '+' : ''}${money(net)}</div>
+    <div class="kv" style="margin-top:8px"><span>Khoản thu</span><b class="inc">${money(inc)}</b></div><div class="hb i" style="width:${inc / tot * 100}%"></div>${cmp(inc, ps.inc, true)}
+    <div class="kv"><span>Khoản chi</span><b class="exp">${money(exp)}</b></div><div class="hb e" style="width:${exp / tot * 100}%"></div>${cmp(exp, ps.exp, false)}</div>`;
+
+  const bk = makeBuckets(r, p.type);
+  if (S.rbk != null && !bk[S.rbk]) S.rbk = null;
+  const sel = S.rbk != null ? bk[S.rbk] : null;
+  const cap = sel ? `${esc(sel.label)} (${dm(sel.from)}${sel.from !== sel.to ? ' – ' + dm(sel.to) : ''}): Thu ${money(sel.inc)} · Chi ${money(sel.exp)}` : 'Chạm vào cột để xem chi tiết';
+  h += `<div class="card pad"><b>Thu – Chi theo thời gian</b>${trendChart(bk)}<div class="legend"><span class="i">Thu</span><span>Chi</span></div><div class="cap">${cap}</div></div>`;
+  h += `<div class="card pad"><b>Số dư theo thời gian</b>${balChart(bk)}</div>`;
+
+  const col = type => {
+    const rows = truncRows(catGroups(list.filter(t => t.type === type))), t0 = rows.reduce((s, x) => s + x.v, 0);
+    return `<div class="dcol" data-act="catRep" data-v="${type}"><b class="${type === 'income' ? 'inc' : 'exp'}">${type === 'income' ? 'Khoản thu' : 'Khoản chi'}</b><div style="font-weight:600">${money(t0)}</div>${t0 ? donut(rows, t0, 'mini') : '<div class="empty" style="padding:44px 0">—</div>'}${rows.slice(0, 3).map((x, i) => `<div class="lg"><span class="dot" style="background:${PAL[i % PAL.length]}"></span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(gicon(x.id))} ${esc(gname(x.id))}</span><b>${Math.round(x.v / t0 * 100)}%</b></div>`).join('')}<div class="note" style="color:var(--pri-d)">Xem chi tiết ›</div></div>`;
+  };
+  h += `<div class="card pad"><b>Báo cáo theo nhóm</b><div class="dgrid" style="margin-top:8px">${col('income')}${col('expense')}</div></div>`;
+
+  const today = todayStr(), upTo = today < r.from ? r.to : (today < r.to ? today : r.to), nd = Math.max(1, daysBetween(r.from, upTo));
+  const byDay = {}; list.forEach(t => { if (t.type === 'expense') byDay[t.date] = (byDay[t.date] || 0) + +t.amount; });
+  const top = Object.entries(byDay).sort((a, b) => b[1] - a[1])[0];
+  h += `<div class="card pad"><b>Thống kê</b>
+    <div class="kv"><span>Chi trung bình / ngày</span><b>${money(exp / nd)}</b></div>
+    <div class="kv"><span>Thu trung bình / ngày</span><b>${money(inc / nd)}</b></div>
+    <div class="kv"><span>Ngày chi nhiều nhất</span><b>${top ? dm(top[0]) + ' · ' + money(top[1]) : '—'}</b></div>
+    <div class="kv"><span>Tỷ lệ tiết kiệm</span><b>${inc > 0 ? Math.round(net / inc * 100) + '%' : '—'}</b></div>
+    <div class="kv"><span>Số giao dịch</span><b>${list.length}</b></div></div>`;
+
+  const topTx = list.filter(t => t.type === 'expense').sort((a, b) => b.amount - a.amount).slice(0, 5);
+  if (topTx.length) h += `<div class="card"><div class="h2">Chi tiêu lớn nhất</div>${topTx.map(txRow).join('')}</div>`;
+
+  if (S.wallet === 'all' && S.data.wallets.length > 1) {
+    const rows = S.data.wallets.map(w => { const s = sumTx(list.filter(t => t.walletId === w.id)); return { w, ...s }; }).filter(x => x.inc || x.exp);
+    if (rows.length) h += `<div class="card"><div class="h2">Theo ví</div>${rows.map(x => `<div class="row" style="cursor:default"><div class="ico" style="background:hsl(${hue(x.w.id)} 65% 50% / .18)">${esc(x.w.icon)}</div><div class="mid"><b>${esc(x.w.name)}</b><small>Thu ${money(x.inc)} · Chi ${money(x.exp)}</small></div><div class="amt ${x.inc - x.exp < 0 ? 'exp' : 'inc'}">${money(x.inc - x.exp)}</div></div>`).join('')}</div>`;
   }
-  h += `</div><div class="card pad"><b>6 tháng gần nhất</b>${bars()}</div>`;
   return h;
+}
+
+/* ---------- chi tiết nhóm → giao dịch ---------- */
+function catReport(type) {
+  const r = prange(S.rp), list = rangeTx(r.from, r.to).filter(t => t.type === type);
+  const all = catGroups(list), total = all.reduce((s, x) => s + x.v, 0), rows = truncRows(all);
+  let h = `<div style="color:var(--muted);font-size:13px">${esc(r.label)}</div><div class="big ${type === 'income' ? 'inc' : 'exp'}">${money(total)}</div>`;
+  if (!total) return openSheet(type === 'income' ? 'Khoản thu theo nhóm' : 'Khoản chi theo nhóm', h + '<div class="empty"><i>📊</i>Không có dữ liệu</div>');
+  h += donut(rows, total) + all.map((x, i) => {
+    const pct = x.v / total * 100, subs = Object.entries(x.subs).sort((a, b) => b[1] - a[1]);
+    const show = subs.length > 1 || (subs.length === 1 && subs[0][0] !== x.id);
+    return `<div class="rg"><div class="row" style="padding-left:0;padding-right:0" data-act="catTx" data-v="${type}" data-m="g|${esc(x.id)}"><span class="dot" style="background:${PAL[i % PAL.length]}"></span><div class="mid"><b>${esc(gicon(x.id))} ${esc(gname(x.id))}</b></div><div class="pct">${pct.toFixed(1)}%</div><div class="amt">${money(x.v)}</div></div>${show ? subs.map(([sid, v]) => `<div class="sub2" style="cursor:pointer" data-act="catTx" data-v="${type}" data-m="c|${esc(sid)}"><span>${esc(sid === x.id ? gname(x.id) + ' (chung)' : (C(sid) ? C(sid).name : 'Chưa phân loại'))}</span><span>${money(v)}</span></div>`).join('') : ''}</div>`;
+  }).join('');
+  openSheet(type === 'income' ? 'Khoản thu theo nhóm' : 'Khoản chi theo nhóm', h);
+}
+function catTxList(type, m) {
+  const r = prange(S.rp), [kind, id] = [m.slice(0, 1), m.slice(2)];
+  const list = rangeTx(r.from, r.to).filter(t => t.type === type && (kind === 'g' ? groupOf(t) === id : (t.categoryId || '') === id)).sort(sortTx);
+  const sum = list.reduce((s, t) => s + +t.amount, 0);
+  openSheet(esc(kind === 'g' ? gname(id) : (C(id) ? C(id).name : 'Chưa phân loại')),
+    `<button class="btn block" data-act="catRep" data-v="${type}" style="margin:0 0 8px">‹ Quay lại</button><div class="kv"><span>${list.length} giao dịch</span><b>${money(sum)}</b></div><div class="card" style="margin-top:6px">${list.map(txRow).join('')}</div>`);
 }
 
 /* ---------- tab: ngân sách ---------- */
@@ -652,7 +794,7 @@ function exportCsv() {
 
 /* ---------- điều phối sự kiện ---------- */
 const ACT = {
-  tab: el => { S.view = el.dataset.v; S.searchOpen = false; S.q = ''; render(); window.scrollTo(0, 0); },
+  tab: el => { S.view = el.dataset.v; S.searchOpen = false; S.q = ''; S.rbk = null; render(); window.scrollTo(0, 0); },
   addTx: () => txForm(),
   editTx: el => txForm(el.dataset.id),
   mPrev: () => { S.month = shiftMonth(S.month, -1); renderMain(); },
@@ -662,7 +804,13 @@ const ACT = {
   search: () => { S.searchOpen = !S.searchOpen; if (!S.searchOpen) S.q = ''; renderHeader(); renderMain(); },
   sync: () => configured() ? pull(true) : settingsSheet(true),
   close: closeSheet,
-  rtype: el => { S.rtype = el.dataset.v; renderMain(); },
+  rPer: el => { const t = el.dataset.v, r = prange(S.rp); S.rp = { ...S.rp, type: t }; if (t === 'custom') { S.rp.from = r.from; S.rp.to = r.to; } S.rbk = null; renderMain(); },
+  rPrev: () => { S.rp = pshift(S.rp, -1); S.rbk = null; renderMain(); },
+  rNext: () => { S.rp = pshift(S.rp, 1); S.rbk = null; renderMain(); },
+  rNow: () => { S.rp = { ...S.rp, anchor: todayStr() }; S.rbk = null; renderMain(); },
+  bk: el => { const i = +el.dataset.i; S.rbk = S.rbk === i ? null : i; renderMain(); },
+  catRep: el => catReport(el.dataset.v),
+  catTx: el => catTxList(el.dataset.v, el.dataset.m),
   addWallet: () => walletForm(), editWallet: el => walletForm(el.dataset.id),
   cats: catList, addCat: () => catForm(), editCat: el => catForm(el.dataset.id),
   addBudget: () => budgetForm(), editBudget: el => budgetForm(el.dataset.id),
@@ -670,6 +818,13 @@ const ACT = {
 };
 document.addEventListener('click', e => { const el = e.target.closest('[data-act]'); if (el && ACT[el.dataset.act]) ACT[el.dataset.act](el, e); });
 document.addEventListener('input', e => { if (e.target.id === 'q') { S.q = e.target.value; renderMain(); } });
+document.addEventListener('change', e => {
+  if (e.target.id === 'rp_f' || e.target.id === 'rp_t') {
+    S.rp[e.target.id === 'rp_f' ? 'from' : 'to'] = e.target.value;
+    if (S.rp.to && S.rp.from && S.rp.to < S.rp.from) S.rp.to = S.rp.from;
+    S.rbk = null; renderMain();
+  }
+});
 
 /* ---------- khởi động ---------- */
 render();
